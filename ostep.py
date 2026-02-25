@@ -1,3 +1,4 @@
+import io
 import sys
 import threading
 import logging
@@ -14,6 +15,7 @@ from PyPDF2.generic._fit import Fit
 from PyPDF2.generic import Destination
 from PyPDF2.constants import TypFitArguments
 from pdfminer.high_level import extract_text
+from reportlab.pdfgen import canvas
 
 # logging setup
 logger = logging.getLogger(__name__)
@@ -33,6 +35,27 @@ class Book:
     timeout: int = 180
     output_dir: str = "./output"
     output_file: str = "ostep.pdf"
+
+    @staticmethod
+    def add_global_page_number(page, page_number: int):
+        # Overlay a small footer page number; chapter-local numbers remain untouched.
+        width = float(page.mediabox.width)
+        height = float(page.mediabox.height)
+        margin_x = 24
+        y = 16
+
+        packet = io.BytesIO()
+        c = canvas.Canvas(packet, pagesize=(width, height))
+        c.setFont("Helvetica", 9)
+        if page_number % 2 == 0:
+            c.drawString(margin_x, y, str(page_number))
+        else:
+            c.drawRightString(width - margin_x, y, str(page_number))
+        c.save()
+
+        packet.seek(0)
+        overlay_reader = PdfReader(packet)
+        page.merge_page(overlay_reader.pages[0])
 
     @property
     def hardcoded_chapters(self) -> List[Chapter]:
@@ -180,6 +203,9 @@ class Book:
                         continue
 
             logger.info(" ... idx=%d, pdf=%s, bookmark=%s", idx, pdf, bookmark)
+
+        for page_number, merged_page in enumerate(merger.pages, start=1):
+            self.add_global_page_number(merged_page.pagedata, page_number)
 
         with open(self.output_file, "wb") as book:
             merger.write(book)
